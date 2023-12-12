@@ -1,0 +1,10 @@
+# Auto detect text files and perform line endings normalization
+* text=auto
+
+# Ignore files that are not required for build when exporting repository to archive
+/.vscode/      export-ignore
+/.editorconfig export-ignore
+/.git*         export-ignore
+
+# Do not try to diff and merge these files
+go.sum -diff

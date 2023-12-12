@@ -1,0 +1,9 @@
+{
+  "recommendations": [
+    "editorconfig.editorconfig",
+    "golang.go",
+    "ryanluker.vscode-coverage-gutters",
+    "aaron-bond.better-comments"
+  ],
+  "unwantedRecommendations": []
+}
