@@ -1,10 +1,13 @@
 package tonconnect
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -24,10 +27,12 @@ type Session struct {
 	LastRequestID uint64   `json:"last_request_id,string,omitempty"`
 }
 
-type bridgeMessage struct {
-	From    string `json:"from"`
-	Message []byte `json:"message"`
+type bridgeMessageOptions struct {
+	TTL   string
+	Topic string
 }
+
+type bridgeMessageOption = func(*bridgeMessageOptions)
 
 func NewSession() (*Session, error) {
 	id, pk, err := box.GenerateKey(rand.Reader)
@@ -40,13 +45,13 @@ func NewSession() (*Session, error) {
 	return s, nil
 }
 
-func (s *Session) connectToBridge(ctx context.Context, bridgeURL string, msgs chan<- walletMessage) error {
+func (s *Session) connectToBridge(ctx context.Context, bridgeURL string, msgs chan<- bridgeMessage) error {
 	u, err := url.Parse(bridgeURL)
 	if err != nil {
 		return fmt.Errorf("tonconnect: failed to parse bridge URL: %w", err)
 	}
 
-	u.Path += "/events"
+	u = u.JoinPath("/events")
 	q := u.Query()
 	q.Set("client_id", hex.EncodeToString(s.ID[:]))
 	if s.LastEventID > 0 {
@@ -60,12 +65,15 @@ func (s *Session) connectToBridge(ctx context.Context, bridgeURL string, msgs ch
 	}
 
 	conn := sse.NewConnection(req)
-	conn.SubscribeEvent("message", func(e sse.Event) {
-		var bm bridgeMessage
-		if err := json.Unmarshal([]byte(e.Data), &bm); err == nil {
+	unsub := conn.SubscribeEvent("message", func(e sse.Event) {
+		var bmsg struct {
+			From    string `json:"from"`
+			Message []byte `json:"message"`
+		}
+		if err := json.Unmarshal([]byte(e.Data), &bmsg); err == nil {
 			var msg walletMessage
-			if err := s.decrypt(&bm, &msg); err == nil {
-				msgs <- msg
+			if clientID, err := s.decrypt(bmsg.From, bmsg.Message, &msg); err == nil {
+				msgs <- bridgeMessage{BrdigeURL: bridgeURL, From: clientID, Message: msg}
 				id, err := strconv.ParseUint(e.LastEventID, 10, 64)
 				if err == nil {
 					s.LastEventID = id
@@ -73,21 +81,56 @@ func (s *Session) connectToBridge(ctx context.Context, bridgeURL string, msgs ch
 			}
 		}
 	})
+	defer unsub()
 
-	if err := conn.Connect(); err != nil {
-		return err
+	if err := conn.Connect(); !(errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
+		return fmt.Errorf("tonconnect: failed to connect to bridge: %w", err)
 	}
 
 	return nil
 }
 
-func (s *Session) sendMessage(bridgeURL string, msg []byte) error {
-	u, _ := url.Parse(bridgeURL)
-	u.Path = "message"
+func (s *Session) sendMessage(ctx context.Context, msg any, topic string, options ...bridgeMessageOption) error {
+	opts := &bridgeMessageOptions{TTL: "300"}
+	for _, opt := range options {
+		opt(opts)
+	}
+
+	u, err := url.Parse(s.BridgeURL)
+	if err != nil {
+		return fmt.Errorf("tonconnect: failed to parse bridge URL: %w", err)
+	}
+
+	u = u.JoinPath("/message")
 	q := u.Query()
 	q.Set("client_id", hex.EncodeToString(s.ID[:]))
 	q.Set("to", hex.EncodeToString(s.ClientID[:]))
+	if opts.TTL != "" {
+		q.Set("ttl", opts.TTL)
+	}
+	if topic != "" {
+		q.Set("topic", topic)
+	}
 	u.RawQuery = q.Encode()
+
+	data, err := s.encrypt(msg)
+	if err != nil {
+		return err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u.String(), bytes.NewBuffer([]byte(base64.StdEncoding.EncodeToString(data))))
+	if err != nil {
+		return fmt.Errorf("tonconnect: failed to initialize HTTP request: %w", err)
+	}
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("tonconnect: failed to send message: %w", err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		// TODO: parse error message
+		return fmt.Errorf("tonconnect: failed to send message")
+	}
 
 	return nil
 }
@@ -95,31 +138,37 @@ func (s *Session) sendMessage(bridgeURL string, msg []byte) error {
 func (s *Session) encrypt(msg any) ([]byte, error) {
 	data, err := json.Marshal(msg)
 	if err != nil {
-		return nil, fmt.Errorf("tonconnect: failed to marshal message: %w", err)
+		return nil, fmt.Errorf("tonconnect: failed to marshal message to encrypt: %w", err)
 	}
 
 	return box.EasySeal(data, s.ClientID, s.PrivateKey), nil
 }
 
-func (s *Session) decrypt(msg *bridgeMessage, v any) error {
-	clientID, err := nacl.Load(msg.From)
+func (s *Session) decrypt(from string, msg []byte, v any) (nacl.Key, error) {
+	clientID, err := nacl.Load(from)
 	if err != nil {
-		return fmt.Errorf("tonconnect: failed to load client ID: %w", err)
+		return clientID, fmt.Errorf("tonconnect: failed to load client ID: %w", err)
 	}
 
-	if s.ClientID != nil && s.ClientID != clientID {
-		return fmt.Errorf("tonconnect: invalid session")
+	if s.ClientID != nil && !bytes.Equal(s.ClientID[:], clientID[:]) {
+		return clientID, fmt.Errorf("tonconnect: session and bridge message client IDs don't match")
 	}
 
-	data, err := box.EasyOpen(msg.Message, clientID, s.PrivateKey)
+	data, err := box.EasyOpen(msg, clientID, s.PrivateKey)
 	if err != nil {
-		return fmt.Errorf("tonconnect: failed to decrypt bridge message: %w", err)
+		return clientID, fmt.Errorf("tonconnect: failed to decrypt bridge message: %w", err)
 	}
 
 	err = json.Unmarshal(data, v)
 	if err != nil {
-		return fmt.Errorf("tonconnect: failed to unmarshal data: %w", err)
+		return clientID, fmt.Errorf("tonconnect: failed to unmarshal decrypted data: %w", err)
 	}
 
-	return nil
+	return clientID, nil
+}
+
+func WithTTL(ttl uint64) bridgeMessageOption {
+	return func(opts *bridgeMessageOptions) {
+		opts.TTL = strconv.FormatUint(ttl, 10)
+	}
 }
