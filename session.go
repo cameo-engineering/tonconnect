@@ -46,6 +46,10 @@ func NewSession() (*Session, error) {
 }
 
 func (s *Session) connectToBridge(ctx context.Context, bridgeURL string, msgs chan<- bridgeMessage) error {
+	if s.ID == nil || s.PrivateKey == nil {
+		return fmt.Errorf("tonconnect: session key pair is empty")
+	}
+
 	u, err := url.Parse(bridgeURL)
 	if err != nil {
 		return fmt.Errorf("tonconnect: failed to parse bridge URL: %w", err)
@@ -91,6 +95,10 @@ func (s *Session) connectToBridge(ctx context.Context, bridgeURL string, msgs ch
 }
 
 func (s *Session) sendMessage(ctx context.Context, msg any, topic string, options ...bridgeMessageOption) error {
+	if s.ID == nil || s.PrivateKey == nil || s.ClientID == nil || s.BridgeURL == "" {
+		return fmt.Errorf("tonconnect: session not established")
+	}
+
 	opts := &bridgeMessageOptions{TTL: "300"}
 	for _, opt := range options {
 		opt(opts)
@@ -118,7 +126,9 @@ func (s *Session) sendMessage(ctx context.Context, msg any, topic string, option
 		return err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u.String(), bytes.NewBuffer([]byte(base64.StdEncoding.EncodeToString(data))))
+	body := bytes.NewBuffer([]byte(base64.StdEncoding.EncodeToString(data)))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u.String(), body)
+	req.Header.Set("Content-Type", "text/plain")
 	if err != nil {
 		return fmt.Errorf("tonconnect: failed to initialize HTTP request: %w", err)
 	}
@@ -128,7 +138,7 @@ func (s *Session) sendMessage(ctx context.Context, msg any, topic string, option
 	}
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusOK {
-		// TODO: parse error message
+		// TODO: parse response body according to https://github.com/ton-connect/bridge implementation
 		return fmt.Errorf("tonconnect: failed to send message")
 	}
 
@@ -158,6 +168,8 @@ func (s *Session) decrypt(from string, msg []byte, v any) (nacl.Key, error) {
 	if err != nil {
 		return clientID, fmt.Errorf("tonconnect: failed to decrypt bridge message: %w", err)
 	}
+
+	fmt.Print(string(data))
 
 	err = json.Unmarshal(data, v)
 	if err != nil {

@@ -1,6 +1,16 @@
 package tonconnect
 
-import "encoding/json"
+import (
+	"encoding/json"
+
+	"github.com/kevinburke/nacl"
+)
+
+type bridgeMessage struct {
+	BrdigeURL string
+	From      nacl.Key
+	Message   walletMessage
+}
 
 type walletMessage struct {
 	ID      json.Number `json:"id,omitempty"`

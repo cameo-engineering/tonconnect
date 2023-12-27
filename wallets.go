@@ -23,7 +23,7 @@ var Wallets = map[string]Wallet{
 	},
 	"mytonwallet": {
 		Name:         "MyTonWallet",
-		UniversalURL: "https://connect.mytonwallet.org",
+		UniversalURL: "https://connect.mytonwallet.org/",
 		BridgeURL:    "https://tonconnectbridge.mytonwallet.org/bridge",
 	},
 	"tonhub": {

@@ -6,15 +6,8 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/kevinburke/nacl"
 	"golang.org/x/sync/errgroup"
 )
-
-type bridgeMessage struct {
-	BrdigeURL string
-	From      nacl.Key
-	Message   walletMessage
-}
 
 type connectResponse struct {
 	Device deviceInfo         `json:"device,omitempty"`
@@ -43,12 +36,14 @@ func (s *Session) Connect(ctx context.Context, wallets ...Wallet) (*connectRespo
 				if msg.Message.Event == "connect" {
 					cancel()
 
-					msgID, _ := msg.Message.ID.Int64()
-					s.LastRequestID = uint64(msgID)
+					msgID, err := msg.Message.ID.Int64()
+					if err == nil {
+						s.LastRequestID = uint64(msgID)
+					}
+
 					s.ClientID = msg.From
 					s.BridgeURL = msg.BrdigeURL
 
-					var err error
 					res.Items, err = getConnectItems(msg.Message.Payload.Items...)
 					res.Device = msg.Message.Payload.Device
 					return err
@@ -83,6 +78,7 @@ func (s *Session) Disconnect(ctx context.Context, options ...bridgeMessageOption
 		req := disconnectRequest{
 			ID:     strconv.FormatUint(id, 10),
 			Method: "disconnect",
+			Params: []any{},
 		}
 
 		err := s.sendMessage(ctx, req, "", options...)
@@ -99,9 +95,14 @@ func (s *Session) Disconnect(ctx context.Context, options ...bridgeMessageOption
 			case <-ctx.Done():
 				return ctx.Err()
 			case msg := <-msgs:
-				msgID, _ := msg.Message.ID.Int64()
+				msgID, err := msg.Message.ID.Int64()
+				if err == nil {
+					s.LastRequestID = uint64(msgID)
+				}
 
 				if int64(id) == msgID {
+					cancel()
+
 					if msg.Message.Error != nil {
 						if msg.Message.Error.Message != "" {
 							return fmt.Errorf("tonconnect: %s", msg.Message.Error.Message)
@@ -119,6 +120,8 @@ func (s *Session) Disconnect(ctx context.Context, options ...bridgeMessageOption
 						}
 					}
 				}
+
+				return nil
 			}
 		}
 	})

@@ -52,14 +52,18 @@ func (s *Session) SendTransaction(ctx context.Context, tx Transaction, options .
 
 	id := s.LastRequestID + 1
 	g.Go(func() error {
-		t, _ := json.Marshal(tx)
+		tr, err := json.Marshal(tx)
+		if err != nil {
+			return fmt.Errorf("tonconnect: failed to marshal transaction: %w", err)
+		}
+
 		req := sendTransactionRequest{
 			ID:     strconv.FormatUint(id, 10),
 			Method: "sendTransaction",
-			Params: []string{string(t)},
+			Params: []string{string(tr)},
 		}
 
-		err := s.sendMessage(ctx, req, "sendTransaction", options...)
+		err = s.sendMessage(ctx, req, "sendTransaction", options...)
 		if err == nil {
 			s.LastRequestID = id
 		}
@@ -74,7 +78,10 @@ func (s *Session) SendTransaction(ctx context.Context, tx Transaction, options .
 			case <-ctx.Done():
 				return ctx.Err()
 			case msg := <-msgs:
-				msgID, _ := msg.Message.ID.Int64()
+				msgID, err := msg.Message.ID.Int64()
+				if err == nil {
+					s.LastRequestID = uint64(msgID)
+				}
 
 				if int64(id) == msgID {
 					if msg.Message.Error != nil {
@@ -98,10 +105,17 @@ func (s *Session) SendTransaction(ctx context.Context, tx Transaction, options .
 
 					cancel()
 
-					var err error
-					boc, err = base64.StdEncoding.DecodeString(msg.Message.Result.(string))
+					res, ok := msg.Message.Result.(string)
+					if !ok {
+						return fmt.Errorf("tonconnect: transaction result expected to be of type %q", "string")
+					}
 
-					return err
+					boc, err = base64.StdEncoding.DecodeString(res)
+					if err != nil {
+						return fmt.Errorf("tonconnect: failed to decode transaction result bag of cells")
+					}
+
+					return nil
 				}
 			}
 		}
