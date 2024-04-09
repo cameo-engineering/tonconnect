@@ -57,7 +57,7 @@ func (s *Session) connectToBridge(ctx context.Context, bridgeURL string, msgs ch
 
 	u = u.JoinPath("/events")
 	q := u.Query()
-	q.Set("client_id", hex.EncodeToString(s.ID[:]))
+	q.Set("client_id", hex.EncodeToString((*s.ID)[:]))
 	if s.LastEventID > 0 {
 		q.Set("last_event_id", strconv.FormatUint(uint64(s.LastEventID), 10))
 	}
@@ -111,8 +111,8 @@ func (s *Session) sendMessage(ctx context.Context, msg any, topic string, option
 
 	u = u.JoinPath("/message")
 	q := u.Query()
-	q.Set("client_id", hex.EncodeToString(s.ID[:]))
-	q.Set("to", hex.EncodeToString(s.ClientID[:]))
+	q.Set("client_id", hex.EncodeToString((*s.ID)[:]))
+	q.Set("to", hex.EncodeToString((*s.ClientID)[:]))
 	if opts.TTL != "" {
 		q.Set("ttl", opts.TTL)
 	}
@@ -160,7 +160,7 @@ func (s *Session) decrypt(from string, msg []byte, v any) (nacl.Key, error) {
 		return clientID, fmt.Errorf("tonconnect: failed to load client ID: %w", err)
 	}
 
-	if s.ClientID != nil && !bytes.Equal(s.ClientID[:], clientID[:]) {
+	if s.ClientID != nil && !bytes.Equal((*s.ClientID)[:], (*clientID)[:]) {
 		return clientID, fmt.Errorf("tonconnect: session and bridge message client IDs don't match")
 	}
 

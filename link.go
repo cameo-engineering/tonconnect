@@ -62,7 +62,7 @@ func (s *Session) GenerateUniversalLink(wallet Wallet, connreq ConnectRequest, o
 
 	q := u.Query()
 	q.Set("v", "2")
-	q.Set("id", hex.EncodeToString(s.ID[:]))
+	q.Set("id", hex.EncodeToString((*s.ID)[:]))
 
 	data, err := json.Marshal(connreq)
 	if err != nil {
