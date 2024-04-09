@@ -45,8 +45,6 @@ type txOpt = func(*Transaction)
 type msgOpt = func(*Message)
 
 func (s *Session) SendTransaction(ctx context.Context, tx Transaction, options ...bridgeMessageOption) ([]byte, error) {
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
 	g, ctx := errgroup.WithContext(ctx)
 	msgs := make(chan bridgeMessage)
 
@@ -102,8 +100,6 @@ func (s *Session) SendTransaction(ctx context.Context, tx Transaction, options .
 							return fmt.Errorf("tonconnect: unknown transaction send error")
 						}
 					}
-
-					cancel()
 
 					res, ok := msg.Message.Result.(string)
 					if !ok {
