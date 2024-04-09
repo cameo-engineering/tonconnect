@@ -32,8 +32,6 @@ type signDataResponse struct {
 type signDataOpt = func(*SignData)
 
 func (s *Session) SignData(ctx context.Context, data SignData, options ...bridgeMessageOption) (*signDataResult, error) {
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
 	g, ctx := errgroup.WithContext(ctx)
 	msgs := make(chan bridgeMessage)
 
@@ -83,8 +81,6 @@ func (s *Session) SignData(ctx context.Context, data SignData, options ...bridge
 							return fmt.Errorf("tonconnect: unknown data sign error")
 						}
 					}
-
-					cancel()
 
 					var ok bool
 					res, ok = msg.Message.Result.(signDataResult)

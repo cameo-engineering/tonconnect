@@ -68,8 +68,6 @@ func (s *Session) Connect(ctx context.Context, wallets ...Wallet) (*connectRespo
 }
 
 func (s *Session) Disconnect(ctx context.Context, options ...bridgeMessageOption) error {
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
 	g, ctx := errgroup.WithContext(ctx)
 	msgs := make(chan bridgeMessage)
 
@@ -101,8 +99,6 @@ func (s *Session) Disconnect(ctx context.Context, options ...bridgeMessageOption
 				}
 
 				if int64(id) == msgID {
-					cancel()
-
 					if msg.Message.Error != nil {
 						if msg.Message.Error.Message != "" {
 							return fmt.Errorf("tonconnect: %s", msg.Message.Error.Message)
