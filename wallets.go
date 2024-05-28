@@ -14,7 +14,7 @@ var Wallets = map[string]Wallet{
 	"telegram-wallet": {
 		Name:         "Wallet",
 		UniversalURL: "https://t.me/wallet/start?startapp=",
-		BridgeURL:    "https://bridge.tonapi.io/bridge",
+		BridgeURL:    "https://bridge.ton.space/bridge",
 	},
 	"tonkeeper": {
 		Name:         "Tonkeeper",
